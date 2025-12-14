@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neural Vision AI PRO</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <!-- COCO-SSD Model -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
+        body {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #050505;
+            color: #e0e0e0;
+            overflow-x: hidden;
+        }
+
+        /* Scanline effect */
+        .scanlines {
+            background: linear-gradient(
+                to bottom,
+                rgba(255,255,255,0),
+                rgba(255,255,255,0) 50%,
+                rgba(0,0,0,0.2) 50%,
+                rgba(0,0,0,0.2)
+            );
+            background-size: 100% 4px;
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        /* HUD Borders */
+        .hud-border {
+            border: 1px solid rgba(0, 255, 255, 0.2);
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.1);
+        }
+
+        /* Canvas Overlay */
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 5;
+            /* Use object-cover to match the video's coverage area */
+            object-fit: cover; 
+            width: 100%; /* Ensure style width matches video style width */
+            height: 100%;
+        }
+        
+        /* Video Element Sizing FIX: Use object-cover to fill the entire container */
+        .video-feed {
+            position: absolute; 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; /* CHANGED: Ensures video fills container completely */
+            playsinline; 
+            muted;
+            transition: filter 0.5s ease-in-out; /* Smooth transitions for filters */
+        }
+        
+        /* ------------------- VISION MODE FILTERS ------------------- */
+
+        /* Night Vision Mode Specifics */
+        .mode-night-vision .video-feed {
+            filter: brightness(200%) contrast(150%) grayscale(100%) sepia(100%) hue-rotate(90deg) saturate(300%);
+        }
+        .mode-night-vision .hud-text { color: #00ff00; }
+        .mode-night-vision .hud-border { border-color: #00ff00; box-shadow: 0 0 10px rgba(0,255,0,0.3); }
+
+        /* Distance Mode Specifics */
+        .mode-distance .video-feed {
+            filter: grayscale(100%) contrast(110%);
+        }
+        .mode-distance .hud-text { color: #facc15; } /* Yellow-400 */
+        .mode-distance .hud-border { border-color: #facc15; }
+
+        /* Time of Flight V2 Pro Mode Specifics */
+        .mode-tof-v2-pro .video-feed {
+            filter: hue-rotate(-60deg) saturate(150%) contrast(120%);
+        }
+        .mode-tof-v2-pro .hud-text { color: #c084fc; } /* Violet-400 */
+        .mode-tof-v2-pro .hud-border { border-color: #c084fc; box-shadow: 0 0 10px rgba(192, 132, 252, 0.3); }
+
+        /* Time of Flight V1 Mode Specifics */
+        .mode-tof-v1 .video-feed {
+            filter: grayscale(100%) contrast(150%);
+        }
+        .mode-tof-v1 .hud-text { color: #f97316; } /* Orange-500 */
+        .mode-tof-v1 .hud-border { border-color: #f97316; box-shadow: 0 0 10px rgba(249, 115, 22, 0.3); }
+
+        /* Infrared (IR) Mode Specifics */
+        .mode-ir .video-feed {
+            filter: hue-rotate(-90deg) saturate(200%) brightness(150%) contrast(150%); /* Simulates heat map effect */
+        }
+        .mode-ir .hud-text { color: #f87171; } /* Red-400 */
+        .mode-ir .hud-border { border-color: #f87171; box-shadow: 0 0 10px rgba(248, 113, 113, 0.3); }
+
+        /* Ray Tracing Mode Specifics */
+        .mode-ray-tracing .video-feed {
+            filter: grayscale(100%) brightness(150%) contrast(150%);
+        }
+        .mode-ray-tracing .hud-text { color: #a78bfa; } /* Violet-400 */
+        .mode-ray-tracing .hud-border { border-color: #a78bfa; box-shadow: 0 0 10px rgba(167, 139, 250, 0.3); }
+
+        /* AR Overlay Mode Specifics */
+        .mode-ar-overlay .video-feed {
+            filter: contrast(120%) brightness(110%);
+        }
+        .mode-ar-overlay .hud-text { color: #10b981; } /* Emerald-500 */
+        .mode-ar-overlay .hud-border { border-color: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, 0.3); }
+
+        /* VR Structural Map Mode Specifics */
+        .mode-vr-map .video-feed {
+            filter: grayscale(100%) contrast(180%) invert(10%);
+        }
+        .mode-vr-map .hud-text { color: #f9f9e0; }
+        .mode-vr-map .hud-border { border-color: #f9f9e0; box-shadow: 0 0 10px rgba(249, 249, 224, 0.3); }
+
+        /* Live View Mode Specifics */
+        .mode-live .hud-text { color: #00ccff; }
+
+        /* Loader Animation */
+        .loader {
+            border-top-color: #3498db;
+            -webkit-animation: spinner 1.5s linear infinite;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .glass-panel {
+            background: rgba(10, 10, 15, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Form Elements */
+        select {
+            background-color: rgba(0, 0, 0, 0.5);
+            color: #e0e0e0;
+            border: 1px solid #333;
+            padding: 0.5rem;
+            border-radius: 0.25rem;
+            width: 100%;
+            outline: none;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+        }
+        select:focus {
+            border-color: #00ccff;
+        }
+        
+        /* Custom Scrollbar for Modal */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #111; 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #333; 
+            border-radius: 3px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #444; 
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col mode-live transition-colors duration-500" id="app-body">
+
+    <!-- Out-of-Box Demo Modal -->
+    <div id="demo-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md hidden opacity-0 transition-opacity duration-500">
+        <div class="max-w-xl w-full max-h-[90vh] flex flex-col bg-gray-900 border border-cyan-500/50 rounded-lg p-6 shadow-2xl shadow-cyan-500/20 relative transform transition-transform scale-95" id="demo-content">
+             <!-- Header -->
+             <div class="flex items-center gap-3 mb-4 flex-shrink-0">
+                 <i data-lucide="shield-alert" class="text-cyan-400 w-8 h-8"></i>
+                 <div>
+                    <h2 class="text-xl font-bold text-cyan-400 tracking-wider">SYSTEM PERMISSIONS</h2>
+                    <p class="text-gray-500 text-xs uppercase tracking-widest">Required Protocols</p>
+                 </div>
+             </div>
+             
+             <p class="text-gray-300 text-sm mb-4 leading-relaxed flex-shrink-0">
+                 Neural Vision AI requires access to standard browser APIs to function. Please authorize the necessary interfaces:
+             </p>
+             
+             <!-- Permissions List -->
+             <div class="space-y-3 mb-6 overflow-y-auto custom-scrollbar pr-2 flex-grow">
+                 
+                 <!-- Camera -->
+                 <div class="flex items-start gap-4 p-3 rounded bg-gray-800/40 border border-gray-700/50">
+                     <div class="p-2 bg-gray-800 rounded text-cyan-400"><i data-lucide="camera"></i></div>
+                     <div>
+                         <h4 class="font-bold text-gray-200 text-sm">Camera / Screen Share</h4>
+                         <p class="text-[11px] text-gray-400">Used for the Live Feed and Object Detection.</p>
+                     </div>
+                 </div>
+
+                 <!-- Microphone -->
+                 <div class="flex items-start gap-4 p-3 rounded bg-gray-800/40 border border-gray-700/50">
+                     <div class="p-2 bg-gray-800 rounded text-cyan-400"><i data-lucide="mic"></i></div>
+                     <div>
+                         <h4 class="font-bold text-gray-200 text-sm">Microphone</h4>
+                         <p class="text-[11px] text-gray-400">Used optionally for capturing audio when performing video recordings.</p>
+                     </div>
+                 </div>
+
+                 <!-- Notification -->
+                 <div class="flex items-start gap-4 p-3 rounded bg-gray-800/40 border border-gray-700/50">
+                     <div class="p-2 bg-gray-800 rounded text-cyan-400"><i data-lucide="bell-ring"></i></div>
+                     <div>
+                         <h4 class="font-bold text-gray-200 text-sm">Browser Notifications</h4>
+                         <p class="text-[11px] text-gray-400">Used to display alerts for mode changes, system status, and critical events (like object detection triggers).</p>
+                     </div>
+                 </div>
+             </div>
+    
+             <!-- Button -->
+             <button onclick="closeDemo()" class="w-full py-4 bg-cyan-900/40 hover:bg-cyan-900/60 border border-cyan-500 text-cyan-400 font-bold rounded transition-all flex items-center justify-center gap-2 group flex-shrink-0">
+                 <span>AUTHORIZE & INITIALIZE</span>
+                 <i data-lucide="check-circle" class="w-4 h-4 group-hover:scale-110 transition-transform"></i>
+             </button>
+        </div>
+    </div>
+
+    <!-- Top Bar -->
+    <header class="h-16 border-b border-gray-800 flex items-center justify-between px-6 bg-black z-20">
+        <div class="flex items-center gap-2">
+            <i data-lucide="scan-eye" class="text-cyan-400"></i>
+            <h1 class="text-xl font-bold tracking-wider text-cyan-400">NEURAL<span class="text-white">VISION</span> <span class="text-xs bg-cyan-900 text-cyan-200 px-1 rounded ml-1">PRO</span></h1>
+        </div>
+        <div class="flex items-center gap-4 text-xs text-gray-400">
+            <div id="fps-counter" class="hidden md:block">FPS: <span class="text-white">0</span></div>
+            <div id="obj-counter" class="hidden md:block">OBJECTS: <span class="text-white">0</span></div>
+            <div class="flex items-center gap-1">
+                <div id="status-dot" class="w-2 h-2 rounded-full bg-red-500"></div>
+                <span id="status-text">OFFLINE</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+        
+        <!-- Camera Viewport (This flex-1 ensures it takes all remaining width) -->
+        <div class="relative flex-1 bg-black flex items-center justify-center overflow-hidden group">
+            
+            <!-- Video & Canvas Wrapper (w-full h-full ensures it uses all space) -->
+            <div class="relative w-full h-full" id="camera-container">
+                <!-- Placeholder when camera is off -->
+                <div id="placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 z-0">
+                    <i data-lucide="camera-off" class="w-16 h-16 mb-4 opacity-50"></i>
+                    <p>Initialize Neural Link to Begin</p>
+                </div>
+
+                <!-- Video Element (FIX: object-cover used in CSS) -->
+                <video id="video" class="video-feed absolute hidden" playsinline muted></video>
+                
+                <!-- Canvas for Bounding Boxes and Overlays -->
+                <canvas id="canvas" class="absolute"></canvas>
+
+                <!-- Recording Indicator -->
+                <div id="rec-indicator" class="absolute top-4 right-4 flex items-center gap-2 hidden z-20">
+                    <div class="w-3 h-3 bg-red-600 rounded-full animate-pulse"></div>
+                    <span class="text-red-500 font-bold text-xs tracking-widest">REC</span>
+                </div>
+
+                <!-- Scanlines Overlay -->
+                <div class="scanlines opacity-30 pointer-events-none"></div>
+
+                <!-- Model Loading Overlay -->
+                <div id="loading-overlay" class="absolute inset-0 bg-black/80 z-20 hidden flex-col items-center justify-center">
+                    <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4"></div>
+                    <h2 class="text-cyan-400 font-bold animate-pulse">LOADING COCO-SSD MODEL...</h2>
+                    <p class="text-xs text-gray-400 mt-2">Initializing Tensor Operations</p>
+                </div>
+            </div>
+
+            <!-- Floating Mode Label -->
+            <div class="absolute top-4 left-4 z-10">
+                <span id="current-mode-badge" class="px-3 py-1 bg-cyan-900/50 border border-cyan-500 text-cyan-400 text-xs font-bold rounded uppercase backdrop-blur-sm">
+                    Live View
+                </span>
+            </div>
+        </div>
+
+        <!-- Controls Sidebar -->
+        <aside class="w-full md:w-80 glass-panel border-l border-gray-800 p-6 flex flex-col gap-6 z-30">
+            
+            <!-- Power Control -->
+            <div class="flex flex-col gap-2 flex-shrink-0">
+                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest">System Power</h3>
+                <button id="toggle-cam-btn" class="w-full py-4 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded border border-gray-600 flex items-center justify-center gap-2 transition-all">
+                    <i data-lucide="power"></i> <span>INITIALIZE SYSTEM</span>
+                </button>
+            </div>
+
+             <!-- Input Source Selection -->
+             <div class="flex flex-col gap-2 flex-shrink-0">
+                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest">Input Source</h3>
+                <div class="bg-gray-900/30 p-2 rounded border border-gray-800">
+                    <select id="select-input-source" onchange="changeInputSource(this.value)">
+                        <option value="camera">Camera Feed (Default)</option>
+                        <option value="screen">Screen Share / Window</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Scrollable Settings Container -->
+            <div class="flex flex-col gap-6 flex-grow min-h-0 overflow-y-auto pr-2 custom-scrollbar"> 
+
+                <!-- Vision Modes -->
+                <div class="flex flex-col gap-3">
+                    <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest flex-shrink-0">Advanced Vision Modes</h3>
+                    
+                    <!-- Live View -->
+                    <button onclick="switchMode('live')" id="btn-live" class="mode-btn relative p-4 rounded border border-cyan-500/50 bg-cyan-900/20 text-left hover:bg-cyan-900/40 transition-all active-mode flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-cyan-400">LIVE VIEW</span>
+                            <i data-lucide="video" class="w-4 h-4 text-cyan-400"></i>
+                        </div>
+                    </button>
+                    
+                    <!-- IR -->
+                    <button onclick="switchMode('ir')" id="btn-ir" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-red-900/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-red-400">THERMAL IR</span>
+                            <i data-lucide="thermometer" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+
+                    <!-- Night Vision -->
+                    <button onclick="switchMode('night-vision')" id="btn-night-vision" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-green-900/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-green-400">NIGHT VISION</span>
+                            <i data-lucide="moon" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+
+                    <!-- Ray Tracing -->
+                    <button onclick="switchMode('ray-tracing')" id="btn-ray-tracing" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-violet-900/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-violet-400">RAY TRACE</span>
+                            <i data-lucide="crosshair" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+                    
+                    <!-- AR Overlay -->
+                    <button onclick="switchMode('ar-overlay')" id="btn-ar-overlay" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-emerald-900/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-emerald-400">A.R. OVERLAY</span>
+                            <i data-lucide="scan-line" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+
+                    <!-- VR Map -->
+                    <button onclick="switchMode('vr-map')" id="btn-vr-map" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-gray-700/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-gray-300">V.R. STRUCTURAL MAP</span>
+                            <i data-lucide="grip" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+                    
+                    <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest flex-shrink-0 mt-4">Legacy Depth Modes</h3>
+
+                    <!-- Distance Mapping -->
+                    <button onclick="switchMode('distance')" id="btn-distance" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-yellow-900/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-yellow-400">DISTANCE MAP</span>
+                            <i data-lucide="ruler" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+
+                    <!-- Time of Flight V2 Pro -->
+                    <button onclick="switchMode('tof-v2-pro')" id="btn-tof-v2-pro" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-violet-900/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-violet-400">ToF V2 PRO</span>
+                            <i data-lucide="scan" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+
+                    <!-- Time of Flight V1 -->
+                    <button onclick="switchMode('tof-v1')" id="btn-tof-v1" class="mode-btn relative p-4 rounded border border-gray-700 bg-gray-900/20 text-left hover:bg-orange-900/20 transition-all flex-shrink-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-bold text-gray-300 group-hover:text-orange-400">ToF V1 CLASSIC</span>
+                            <i data-lucide="scan-line" class="w-4 h-4 text-gray-500"></i>
+                        </div>
+                    </button>
+                </div>
+
+                <!-- Manual Capture Settings -->
+                <div class="flex flex-col gap-3">
+                    <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest flex-shrink-0">Manual Capture</h3>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="btn-record-toggle" onclick="toggleManualRecord()" class="p-3 bg-gray-800 hover:bg-red-900/40 border border-gray-600 hover:border-red-500 rounded flex flex-col items-center justify-center gap-1 transition-all">
+                            <i data-lucide="circle" class="w-5 h-5 text-red-500"></i>
+                            <span class="text-[10px] font-bold text-gray-300">REC FEED</span>
+                        </button>
+                        <button onclick="takeScreenshot()" class="p-3 bg-gray-800 hover:bg-cyan-900/40 border border-gray-600 hover:border-cyan-500 rounded flex flex-col items-center justify-center gap-1 transition-all">
+                            <i data-lucide="camera" class="w-5 h-5 text-cyan-400"></i>
+                            <span class="text-[10px] font-bold text-gray-300">SNAPSHOT</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Automated Capture Settings -->
+                <div class="flex flex-col gap-3">
+                    <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest flex-shrink-0">Auto-Capture Triggers</h3>
+                    
+                    <!-- Person Detection -->
+                    <div class="bg-gray-900/30 p-3 rounded border border-gray-800">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="user" class="w-4 h-4 text-blue-400"></i>
+                            <span class="text-xs font-bold text-gray-300">Person Detected</span>
+                        </div>
+                        <select id="select-person-action" onchange="updateCaptureSettings()">
+                            <option value="off">OFF</option>
+                            <option value="photo">Take Photo</option>
+                            <option value="record">Record (5s Clip)</option>
+                        </select>
+                    </div>
+
+                    <!-- Vehicle Detection -->
+                    <div class="bg-gray-900/30 p-3 rounded border border-gray-800">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="car" class="w-4 h-4 text-yellow-400"></i>
+                            <span class="text-xs font-bold text-gray-300">Vehicle Detected</span>
+                        </div>
+                        <select id="select-vehicle-action" onchange="updateCaptureSettings()">
+                            <option value="off">OFF</option>
+                            <option value="photo">Take Photo</option>
+                            <option value="record">Record (5s Clip)</option>
+                        </select>
+                        <p class="text-[9px] text-gray-600 mt-1">*Triggers on Car, Truck, or Bus</p>
+                    </div>
+                    
+                    <!-- Animal Detection (NEW) -->
+                    <div class="bg-gray-900/30 p-3 rounded border border-gray-800">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="paw-print" class="w-4 h-4 text-lime-400"></i>
+                            <span class="text-xs font-bold text-gray-300">Animal Detected</span>
+                        </div>
+                        <select id="select-animal-action" onchange="updateCaptureSettings()">
+                            <option value="off">OFF</option>
+                            <option value="photo">Take Photo</option>
+                            <option value="record">Record (5s Clip)</option>
+                        </select>
+                        <p class="text-[9px] text-gray-600 mt-1">*Triggers on Dog, Cat, Bird, etc.</p>
+                    </div>
+
+                    <!-- Weapon Detection -->
+                    <div class="bg-gray-900/30 p-3 rounded border border-gray-800">
+                        <div class="flex items-center gap-2 mb-2">
+                            <i data-lucide="sword" class="w-4 h-4 text-red-500"></i>
+                            <span class="text-xs font-bold text-gray-300">Weapon Detected</span>
+                        </div>
+                        <select id="select-weapon-action" onchange="updateCaptureSettings()">
+                            <option value="off">OFF</option>
+                            <option value="photo">Take Photo</option>
+                            <option value="record">Record (5s Clip)</option>
+                        </select>
+                        <p class="text-[9px] text-gray-600 mt-1">*Triggers on Knife, Bat, Scissors</p>
+                    </div>
+                </div>
+
+            </div> <!-- End Scrollable Area -->
+
+        </aside>
+    </main>
+
+    <script>
+        // DOM Elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const toggleBtn = document.getElementById('toggle-cam-btn');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const fpsCounter = document.querySelector('#fps-counter span');
+        const objCounter = document.querySelector('#obj-counter span');
+        const appBody = document.getElementById('app-body');
+        const modeBadge = document.getElementById('current-mode-badge');
+        const recIndicator = document.getElementById('rec-indicator');
+        const btnRecordToggle = document.getElementById('btn-record-toggle');
+        const demoModal = document.getElementById('demo-modal');
+        const demoContent = document.getElementById('demo-content');
+
+        // Capture Settings Elements
+        const selectPersonAction = document.getElementById('select-person-action');
+        const selectVehicleAction = document.getElementById('select-vehicle-action');
+        const selectWeaponAction = document.getElementById('select-weapon-action');
+        const selectAnimalAction = document.getElementById('select-animal-action'); 
+        const selectInputSource = document.getElementById('select-input-source');
+
+        // State
+        let model = null;
+        let isStreaming = false;
+        let currentMode = 'live'; 
+        let currentInputSource = 'camera'; 
+        let animationId = null;
+        let lastFrameTime = 0;
+        
+        // Recording State
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let isRecording = false;
+        let isAutoRecording = false; 
+        let autoRecordTimeout = null;
+
+        // Auto-Capture State
+        let captureSettings = {
+            person: 'off', 
+            vehicle: 'off',
+            weapon: 'off',
+            animal: 'off' 
+        };
+        
+        // Cooldowns (timestamps)
+        let lastCaptureTime = 0;
+        const PHOTO_COOLDOWN = 3000; // 3 seconds between photos
+        const AUTO_REC_COOLDOWN = 6000; // 6 seconds (to allow 5s record + 1s buffer)
+        
+        // Mode Configurations (Updated with new modes)
+        const CONFIG = {
+            'live': {
+                threshold: 0.5,
+                color: '#00ccff',
+                badgeText: 'Live Feed',
+                borderColor: 'border-cyan-500',
+                textColor: 'text-cyan-400',
+                bgColor: 'bg-cyan-900/20'
+            },
+            'night-vision': {
+                threshold: 0.4, 
+                color: '#00ff00',
+                badgeText: 'NVG Active',
+                borderColor: 'border-green-500',
+                textColor: 'text-green-400',
+                bgColor: 'bg-green-900/20'
+            },
+            'distance': {
+                threshold: 0.6, 
+                color: '#facc15',
+                badgeText: 'Distance Scan',
+                borderColor: 'border-yellow-500',
+                textColor: 'text-yellow-400',
+                bgColor: 'bg-yellow-900/20'
+            },
+            'tof-v2-pro': { 
+                threshold: 0.65, 
+                color: '#c084fc',
+                badgeText: 'ToF V2 Pro',
+                borderColor: 'border-violet-500',
+                textColor: 'text-violet-400',
+                bgColor: 'bg-violet-900/20'
+            },
+            'tof-v1': { 
+                threshold: 0.6, 
+                color: '#f97316',
+                badgeText: 'ToF V1 Classic',
+                borderColor: 'border-orange-500',
+                textColor: 'text-orange-400',
+                bgColor: 'bg-orange-900/20'
+            },
+            'ir': { // NEW
+                threshold: 0.55,
+                color: '#f87171', 
+                badgeText: 'Thermal IR',
+                borderColor: 'border-red-500',
+                textColor: 'text-red-400',
+                bgColor: 'bg-red-900/20'
+            },
+            'ray-tracing': { // NEW
+                threshold: 0.7,
+                color: '#a78bfa', 
+                badgeText: 'Ray Trace Active',
+                borderColor: 'border-violet-500',
+                textColor: 'text-violet-400',
+                bgColor: 'bg-violet-900/20'
+            },
+            'ar-overlay': { // NEW
+                threshold: 0.5,
+                color: '#10b981', 
+                badgeText: 'A.R. Overlay',
+                borderColor: 'border-emerald-500',
+                textColor: 'text-emerald-400',
+                bgColor: 'bg-emerald-900/20'
+            },
+            'vr-map': { // NEW
+                threshold: 0.65,
+                color: '#f9f9e0', 
+                badgeText: 'V.R. Structural Map',
+                borderColor: 'border-gray-300',
+                textColor: 'text-gray-300',
+                bgColor: 'bg-gray-800/40'
+            },
+        };
+
+        // Utility: System Notification using Browser API
+        function notify(msg) {
+            if (!("Notification" in window)) {
+                console.log("This browser does not support desktop notification");
+                return;
+            }
+            if (Notification.permission === "granted") {
+                new Notification("Neural Vision AI", { body: msg, icon: "https://cdn.jsdelivr.net/npm/lucide-static@0.16.29/icons/scan-eye.svg" });
+            } else {
+                console.log(`[Notification Fallback]: ${msg}`); 
+            }
+        }
+
+        // --- Trigger Alarm ---
+        function triggerAlarm() {
+            // Opens the specified YouTube URL in a new tab, causing the sound to play.
+            window.open('https://www.youtube.com/watch?v=9793cuoNpQ0', '_blank');
+        }
+
+        // --- Demo Modal Logic ---
+        function showPermissionsModal() {
+            // Show modal with animation
+            demoModal.classList.remove('hidden');
+            // Allow strict reflow for transition
+            requestAnimationFrame(() => {
+                demoModal.classList.remove('opacity-0');
+                demoContent.classList.remove('scale-95');
+                lucide.createIcons(); // Ensure icons in modal are rendered
+            });
+        }
+
+        window.closeDemo = function() {
+            // Request Notification Permission immediately upon user interaction
+            if ("Notification" in window) {
+                Notification.requestPermission().then(permission => {
+                    if (permission === "granted") {
+                        notify("System Ready. Notifications Enabled.");
+                    } else {
+                        console.warn("Notification permission denied. Status updates will only appear in the console.");
+                    }
+                });
+            }
+
+            // Fade out
+            demoModal.classList.add('opacity-0');
+            demoContent.classList.add('scale-95');
+            
+            // Remove from DOM flow after animation
+            setTimeout(() => {
+                demoModal.classList.add('hidden');
+            }, 500);
+        }
+
+
+        function updateCaptureSettings() {
+            captureSettings.person = selectPersonAction.value;
+            captureSettings.vehicle = selectVehicleAction.value;
+            captureSettings.weapon = selectWeaponAction.value;
+            captureSettings.animal = selectAnimalAction.value; 
+            notify(`Settings Updated: P[${captureSettings.person}] V[${captureSettings.vehicle}] W[${captureSettings.weapon}] A[${captureSettings.animal}]`);
+        }
+        
+        // --- INPUT SOURCE HANDLING ---
+        async function changeInputSource(source) {
+            currentInputSource = source;
+            notify(`Input Source changed to: ${source.toUpperCase()}`);
+            if (isStreaming) {
+                stopCamera();
+                // Short delay to ensure cleanup
+                setTimeout(() => startCamera(), 500);
+            }
+        }
+
+        // --- CAPTURE FUNCTIONS ---
+
+        function takeScreenshot() {
+            if (!isStreaming) {
+                notify("Cannot take snapshot: System is OFFLINE.");
+                return;
+            }
+            try {
+                // Ensure we capture what's on the canvas (including boxes/filters)
+                // Since the video has filters, we must draw the video (with filters applied) 
+                // onto a temporary canvas, then draw the bounding boxes.
+                
+                // Create a temporary canvas
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = video.videoWidth;
+                tempCanvas.height = video.videoHeight;
+                const tempCtx = tempCanvas.getContext('2d');
+
+                // 1. Draw video feed with current CSS filters applied (NOTE: Browser Security may prevent this from capturing filters)
+                // For a reliable capture, we draw the raw video first:
+                tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+                
+                // 2. Draw the object detection and AR overlays from the main canvas
+                tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
+
+                const dataUrl = tempCanvas.toDataURL('image/png');
+                const link = document.createElement('a');
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                link.download = `neural-vision-snap-${timestamp}.png`;
+                link.href = dataUrl;
+                link.click();
+                notify('Snapshot saved to device.');
+            } catch (err) {
+                console.error('Snapshot failed: ' + err);
+                notify('Error capturing snapshot.');
+            }
+        }
+
+        function toggleManualRecord() {
+            if (!isStreaming) {
+                notify("Cannot record: System is OFFLINE.");
+                return;
+            }
+            
+            if (isRecording) {
+                stopRecording();
+            } else {
+                startRecording('manual');
+            }
+        }
+
+        function startRecording(type = 'manual') {
+            if (isRecording) return; // Prevent overlapping recordings
+            
+            try {
+                // Capture stream from canvas to include all UI overlays/filters
+                const stream = canvas.captureStream(30); // 30 FPS
+                recordedChunks = [];
+                
+                let tracks = [...stream.getTracks()];
+                // Note: Capturing filters in recording is complex and browser-dependent.
+                // For Canvas's captureStream, it only captures the canvas content (boxes/overlays), 
+                // not the filtered video below it. We add video's audio if available.
+                if (video.srcObject && video.srcObject.getAudioTracks().length > 0) {
+                     tracks.push(video.srcObject.getAudioTracks()[0]);
+                }
+                
+                // Use combined stream for MediaRecorder
+                const combinedStream = new MediaStream(tracks); 
+
+                mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm' });
+
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                    link.href = url;
+                    link.download = `neural-vision-rec-${timestamp}.webm`;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                    notify('Recording saved to device. (Note: Video filters are not captured in recording)');
+                    
+                    isRecording = false;
+                    isAutoRecording = false;
+                    recIndicator.classList.add('hidden');
+                    
+                    // Reset Manual Button UI
+                    const icon = btnRecordToggle.querySelector('i');
+                    const text = btnRecordToggle.querySelector('span');
+                    icon.className = "w-5 h-5 text-red-500";
+                    icon.setAttribute('data-lucide', 'circle');
+                    text.innerText = "REC FEED";
+                    text.classList.remove('text-red-500');
+                    lucide.createIcons();
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                recIndicator.classList.remove('hidden');
+                
+                if (type === 'manual') {
+                    notify('Manual Recording Started...');
+                    const icon = btnRecordToggle.querySelector('i');
+                    const text = btnRecordToggle.querySelector('span');
+                    icon.className = "w-5 h-5 text-red-500 animate-pulse";
+                    icon.setAttribute('data-lucide', 'square'); // Change to stop icon
+                    text.innerText = "STOP REC";
+                    text.classList.add('text-red-500');
+                    lucide.createIcons();
+                } else {
+                    isAutoRecording = true;
+                    notify('Auto-Recording Started (5s)...');
+                    // Auto-stop after 5 seconds
+                    autoRecordTimeout = setTimeout(() => {
+                        if (isRecording && isAutoRecording) stopRecording();
+                    }, 5000);
+                }
+
+            } catch (err) {
+                console.error('Recording failed: ' + err);
+                notify('Error starting recording.');
+                isRecording = false;
+            }
+        }
+
+        function stopRecording() {
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+            mediaRecorder.stop();
+            if (autoRecordTimeout) clearTimeout(autoRecordTimeout);
+        }
+
+        function handleAutoCapture(detectedClass) {
+            if (!isStreaming) return;
+            const now = Date.now();
+
+            let action = 'off';
+            let category = null;
+
+            // Person
+            if (detectedClass === 'person') { action = captureSettings.person; category = 'PERSON'; }
+            // Vehicle
+            else if (['car', 'truck', 'bus'].includes(detectedClass)) { action = captureSettings.vehicle; category = 'VEHICLE'; }
+            // Weapon
+            else if (['knife', 'baseball bat', 'scissors'].includes(detectedClass)) { action = captureSettings.weapon; category = 'WEAPON'; }
+            // Animal
+            else if (['dog', 'cat', 'horse', 'sheep', 'cow', 'bird', 'elephant', 'bear', 'zebra', 'giraffe'].includes(detectedClass)) { 
+                action = captureSettings.animal; category = 'ANIMAL'; 
+            }
+
+            if (action === 'off' || category === null) return;
+
+            // Common Logic for Trigger
+            let triggered = false;
+
+            // Handle Photo
+            if (action === 'photo') {
+                if (now - lastCaptureTime > PHOTO_COOLDOWN) {
+                    notify(`ALERT: ${category} detected (${detectedClass})! Taking photo.`);
+                    takeScreenshot();
+                    lastCaptureTime = now;
+                    triggered = true;
+                }
+            }
+
+            // Handle Record
+            if (action === 'record') {
+                // Only start if not already recording and outside cooldown
+                if (!isRecording && (now - lastCaptureTime > AUTO_REC_COOLDOWN)) {
+                    notify(`ALERT: ${category} detected (${detectedClass})! Starting 5s recording.`);
+                    startRecording('auto');
+                    lastCaptureTime = now; // Reset cooldown
+                    triggered = true;
+                }
+            }
+
+            // --- TRIGGER ALARM ---
+            if (triggered && (category === 'WEAPON' || category === 'PERSON')) { // Only alarm on critical detections
+                triggerAlarm();
+            }
+        }
+
+        // 1. Initialize Model
+        async function loadModel() {
+            loadingOverlay.classList.remove('hidden');
+            loadingOverlay.classList.add('flex');
+            notify('Initializing Neural Engine...');
+            try {
+                model = await cocoSsd.load();
+                notify('Neural Engine Ready: Object Detection Active.');
+            } catch (err) {
+                console.error('Failed to load model: ' + err.message);
+                notify('FATAL ERROR: Failed to load detection model.');
+            } finally {
+                loadingOverlay.classList.add('hidden');
+                loadingOverlay.classList.remove('flex');
+            }
+        }
+
+        // 2. Camera Handling
+        async function toggleCamera() {
+            if (isStreaming) {
+                stopCamera();
+            } else {
+                startCamera();
+            }
+        }
+
+        // FIX: Enhanced synchronization to ensure video is playing and ready before starting the loop.
+        async function startCamera() {
+            if (!model) await loadModel();
+
+            notify(`Requesting ${currentInputSource === 'camera' ? 'Camera' : 'Screen'} Access...`);
+            
+            try {
+                let stream;
+                
+                if (currentInputSource === 'camera') {
+                    // Request 16:9 aspect ratio (1280x720)
+                    stream = await navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 }, aspectRatio: { ideal: 1.7777777778 } },
+                        audio: true 
+                    });
+                } else {
+                    stream = await navigator.mediaDevices.getDisplayMedia({
+                        video: { cursor: "always" },
+                        audio: false 
+                    });
+                }
+                
+                video.srcObject = stream;
+                
+                // --- Aggressive Synchronization ---
+                // 1. Wait for video metadata to load (resolution available)
+                await new Promise(resolve => {
+                    if (video.readyState >= 1) return resolve(); // metadata loaded
+                    video.addEventListener('loadedmetadata', resolve, { once: true });
+                });
+
+                // 2. Attempt to play the video (necessary to start drawing frames)
+                await video.play().catch(e => {
+                    console.warn("Video Playback Error (Autoplay Blocked - proceeding anyway):", e);
+                });
+
+                // 3. Wait for the video to have enough data to draw
+                await new Promise(resolve => {
+                    // READYSTATE 2 (HAVE_CURRENT_DATA) or 3 (HAVE_FUTURE_DATA)
+                    if (video.readyState >= 2) return resolve();
+                    video.addEventListener('loadeddata', resolve, { once: true });
+                });
+
+                // --- Finalize State ---
+                stream.getVideoTracks()[0].onended = () => {
+                    stopCamera();
+                    notify('Stream ended by user source.'); 
+                };
+                
+                isStreaming = true;
+                updateUIState(true);
+                resizeCanvas(); // Set the initial canvas resolution
+                // Start the detection loop
+                animationId = requestAnimationFrame(detectFrame);
+                notify(`${currentInputSource === 'camera' ? 'Camera' : 'Screen'} Stream Active.`);
+
+            } catch (err) {
+                console.error('Stream Error: ' + err.message);
+                notify("ERROR: Could not access input source. Check permissions.");
+                updateUIState(false);
+            }
+        }
+
+        function stopCamera() {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+            isStreaming = false;
+            cancelAnimationFrame(animationId);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            updateUIState(false);
+            notify('System Link Terminated.');
+            
+            if (isRecording) stopRecording();
+        }
+
+        function updateUIState(active) {
+            if (active) {
+                video.classList.remove('hidden');
+                document.getElementById('placeholder').classList.add('hidden');
+                toggleBtn.innerHTML = `<i data-lucide="power-off"></i> <span>TERMINATE SYSTEM</span>`;
+                toggleBtn.classList.add('bg-red-900/50', 'border-red-500', 'text-red-200', 'hover:bg-red-900/70');
+                toggleBtn.classList.remove('bg-gray-800', 'hover:bg-gray-700', 'border-gray-600', 'text-white');
+
+                statusDot.className = "w-2 h-2 rounded-full bg-green-500 animate-pulse";
+                statusText.innerText = "ONLINE";
+                statusText.className = "text-green-500 font-bold";
+                lucide.createIcons();
+            } else {
+                video.classList.add('hidden');
+                document.getElementById('placeholder').classList.remove('hidden');
+                toggleBtn.innerHTML = `<i data-lucide="power"></i> <span>INITIALIZE SYSTEM</span>`;
+                toggleBtn.classList.remove('bg-red-900/50', 'border-red-500', 'text-red-200', 'hover:bg-red-900/70');
+                toggleBtn.classList.add('bg-gray-800', 'hover:bg-gray-700', 'border-gray-600', 'text-white');
+
+                statusDot.className = "w-2 h-2 rounded-full bg-red-500";
+                statusText.innerText = "OFFLINE";
+                statusText.className = "text-gray-500";
+                lucide.createIcons();
+                fpsCounter.innerText = "0";
+                objCounter.innerText = "0";
+            }
+        }
+
+        /**
+         * FIX: Simplified resize logic. The CSS handles the video/canvas
+         * style size (100% of container, using object-fit: cover).
+         * This function only sets the canvas's internal resolution (width/height)
+         * to match the video's intrinsic resolution for accurate detection drawing.
+         */
+        function resizeCanvas() {
+            if (!video.videoWidth || !video.videoHeight) return; 
+
+            // Set the canvas *internal* resolution to match the intrinsic video resolution
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+        }
+        
+        // 3. Mode Switching Logic
+        window.switchMode = (mode) => {
+            currentMode = mode;
+            notify(`Mode Switched: ${mode.toUpperCase()}`);
+            
+            // 1. Reset all button styles
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.remove(
+                    'active-mode', 'border-cyan-500/50', 'bg-cyan-900/20', 
+                    'border-green-500', 'bg-green-900/20', 
+                    'border-yellow-500', 'bg-yellow-900/20', 
+                    'border-violet-500', 'bg-violet-900/20',
+                    'border-orange-500', 'bg-orange-900/20',
+                    'border-red-500', 'bg-red-900/20',
+                    'border-emerald-500', 'bg-emerald-900/20',
+                    'border-gray-300', 'bg-gray-800/40' 
+                );
+                btn.classList.add('border-gray-700', 'bg-gray-900/20');
+
+                const title = btn.querySelector('span');
+                const icon = btn.querySelector('i, svg'); 
+                
+                if (title) {
+                    title.classList.remove('text-cyan-400', 'text-green-400', 'text-yellow-400', 'text-violet-400', 'text-orange-400', 'text-red-400', 'text-emerald-400', 'text-gray-300');
+                    title.classList.add('text-gray-300');
+                }
+                if (icon) {
+                    icon.classList.remove('text-cyan-400', 'text-green-400', 'text-yellow-400', 'text-violet-400', 'text-orange-400', 'text-red-400', 'text-emerald-400', 'text-gray-300');
+                    icon.classList.add('text-gray-500');
+                }
+            });
+
+            // 2. Apply active styles
+            const activeBtn = document.getElementById(`btn-${mode}`);
+            const config = CONFIG[mode];
+            
+            activeBtn.classList.remove('border-gray-700', 'bg-gray-900/20');
+            activeBtn.classList.add(config.borderColor, config.bgColor, 'active-mode');
+            
+            const activeTitle = activeBtn.querySelector('span');
+            const activeIcon = activeBtn.querySelector('i, svg');
+
+            if (activeTitle) {
+                activeTitle.classList.remove('text-gray-300');
+                activeTitle.classList.add(config.textColor);
+            }
+            if (activeIcon) {
+                activeIcon.classList.remove('text-gray-500');
+                activeIcon.classList.add(config.textColor);
+            }
+
+            // 3. Update Global UI. The CSS filter is applied via this class change.
+            modeBadge.innerText = config.badgeText;
+            modeBadge.className = `px-3 py-1 text-xs font-bold rounded uppercase backdrop-blur-sm transition-all border ${config.bgColor} ${config.borderColor} ${config.textColor}`;
+
+            appBody.className = `h-screen w-screen flex flex-col transition-colors duration-500 mode-${mode}`;
+            
+            lucide.createIcons();
+        };
+
+        // --- AR Overlay Grid Drawing ---
+        function drawARGrid(color) {
+            const cols = 20;
+            const rows = 12;
+            const w = canvas.width;
+            const h = canvas.height;
+            const stepX = w / cols;
+            const stepY = h / rows;
+
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.globalAlpha = 0.2;
+            ctx.shadowBlur = 0;
+
+            // Draw horizontal lines
+            for (let i = 0; i <= rows; i++) {
+                ctx.beginPath();
+                ctx.moveTo(0, i * stepY);
+                ctx.lineTo(w, i * stepY);
+                ctx.stroke();
+            }
+
+            // Draw vertical lines
+            for (let j = 0; j <= cols; j++) {
+                ctx.beginPath();
+                ctx.moveTo(j * stepX, 0);
+                ctx.lineTo(j * stepX, h);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1.0;
+        }
+
+        // 4. Detection Loop
+        async function detectFrame(timestamp) {
+            if (!isStreaming) {
+                // If streaming stopped externally, ensure we clean up the request
+                cancelAnimationFrame(animationId);
+                return;
+            }
+
+            if (lastFrameTime !== 0) {
+                const fps = Math.round(1000 / (timestamp - lastFrameTime));
+                fpsCounter.innerText = fps;
+            }
+            lastFrameTime = timestamp;
+
+            // Ensure canvas resolution matches video resolution, which might change with input source
+            if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+                resizeCanvas();
+            }
+
+            // Clear canvas - ONLY the bounding boxes and overlays are drawn here
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+
+            // Draw AR Grid over everything for AR Overlay and VR Map modes
+            if (currentMode === 'ar-overlay' || currentMode === 'vr-map') {
+                drawARGrid(CONFIG[currentMode].color);
+            }
+            
+            // NOTE: The video filters are now handled entirely by CSS on the <video> element.
+            // We DO NOT draw the video to the canvas here, unless doing pixel manipulation.
+
+            try {
+                // Only run detection if the model is loaded and video is ready to be processed
+                if (model && video.readyState >= 2) {
+                    const predictions = await model.detect(video);
+                    renderPredictions(predictions);
+                } else {
+                    // Fallback to 0 objects if model is not ready or video has no data
+                    objCounter.innerText = 0;
+                }
+            } catch (e) {
+                console.error("Detection error:", e);
+                objCounter.innerText = "E";
+            }
+
+            animationId = requestAnimationFrame(detectFrame);
+        }
+
+        function renderPredictions(predictions) {
+            const config = CONFIG[currentMode];
+            let objectCount = 0;
+            
+            // Setup global styles for all modes
+            ctx.font = 'bold 12px JetBrains Mono';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = config.color;
+
+            predictions.forEach(prediction => {
+                
+                if (prediction.score > 0.6) { 
+                    handleAutoCapture(prediction.class);
+                }
+
+                if (prediction.score < config.threshold) return;
+
+                objectCount++;
+                const [x, y, width, height] = prediction.bbox;
+                
+                let boxColor = config.color;
+                let labelText = `${prediction.class} ${Math.round(prediction.score * 100)}%`;
+
+                const area = (width * height);
+                const totalArea = canvas.width * canvas.height;
+                const ratio = area / totalArea;
+
+                // --- Mode Specific Rendering ---
+                if (currentMode === 'distance') {
+                    // (Distance logic remains the same)
+                    let proximityLabel = "FAR";
+                    if (ratio > 0.35) { boxColor = '#ef4444'; proximityLabel = "CRITICAL"; } 
+                    else if (ratio > 0.1) { boxColor = '#f97316'; proximityLabel = "NEAR"; } 
+                    else { boxColor = '#3b82f6'; proximityLabel = "DISTANT"; }
+                    labelText = `${prediction.class} [${proximityLabel}]`;
+                } 
+                else if (currentMode === 'vr-map') {
+                    // VR map visualizes depth via line density/color (simulated)
+                    let depth = (1 - ratio); // 1.0 is far, 0.0 is close
+                    boxColor = `hsl(240, 100%, ${10 + depth * 80}%)`; // Blue/White fade
+                    
+                    ctx.strokeStyle = boxColor;
+                    ctx.lineWidth = 4 * depth + 1; 
+                    ctx.strokeRect(x, y, width, height);
+
+                    // Draw center point
+                    ctx.fillStyle = boxColor;
+                    ctx.beginPath();
+                    ctx.arc(x + width/2, y + height/2, 5, 0, 2 * Math.PI);
+                    ctx.fill();
+                    
+                    // Skip standard box drawing below
+                    return; 
+                }
+                else if (currentMode === 'ray-tracing') {
+                    // Ray Tracing visualization: Draw beams from corners
+                    boxColor = config.color;
+                    ctx.strokeStyle = boxColor;
+                    ctx.lineWidth = 1;
+                    
+                    const centerX = x + width / 2;
+                    const centerY = y + height / 2;
+
+                    // Draw 4 rays from the center outward
+                    for(let i=0; i<4; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(centerX, centerY);
+                        let dx = Math.cos(i * Math.PI/2 + timestamp/500);
+                        let dy = Math.sin(i * Math.PI/2 + timestamp/500);
+                        ctx.lineTo(centerX + dx * width, centerY + dy * height);
+                        ctx.stroke();
+                    }
+                    
+                    // Draw a strong bounding box
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x, y, width, height);
+                }
+                else if (currentMode === 'ar-overlay') {
+                    // AR Overlay: Use a bright, contrasting highlight
+                    boxColor = config.color;
+                    ctx.strokeStyle = boxColor;
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, width, height);
+                    
+                    // Add holographic corner marks
+                    const lineLen = 15;
+                    ctx.lineWidth = 4;
+                    ctx.globalAlpha = 0.8;
+                    // Top-Left
+                    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + lineLen, y); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + lineLen); ctx.stroke();
+                    // Bottom-Right
+                    ctx.beginPath(); ctx.moveTo(x + width, y + height); ctx.lineTo(x + width - lineLen, y + height); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(x + width, y + height); ctx.lineTo(x + width, y + height - lineLen); ctx.stroke();
+
+                    ctx.globalAlpha = 1.0;
+                }
+
+                // --- Standard Box Drawing (Applies to all non-VR modes) ---
+                ctx.strokeStyle = boxColor;
+                ctx.shadowColor = boxColor;
+                
+                if (currentMode !== 'ray-tracing' && currentMode !== 'ar-overlay' && currentMode !== 'vr-map') {
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x, y, width, height);
+                }
+                
+                // Draw Label Background
+                const textWidth = ctx.measureText(labelText).width;
+                ctx.globalAlpha = 0.8;
+                ctx.fillStyle = boxColor;
+                ctx.shadowBlur = 0;
+                ctx.fillRect(x, y - 22, textWidth + 10, 22);
+                
+                // Draw Label Text
+                ctx.globalAlpha = 1.0;
+                ctx.fillStyle = '#000000';
+                ctx.fillText(labelText, x + 5, y - 7);
+                
+            });
+
+            objCounter.innerText = objectCount;
+            // Reset canvas shadow for next frame
+            ctx.shadowBlur = 0; 
+        }
+
+        toggleBtn.addEventListener('click', toggleCamera);
+        window.addEventListener('resize', () => {
+            if(isStreaming) resizeCanvas();
+        });
+        
+        // Initial setup
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize Icons
+            lucide.createIcons();
+            switchMode('live');
+            updateCaptureSettings(); 
+            // Show permissions modal on every load
+            setTimeout(showPermissionsModal, 500);
+        });
+
+    </script>
+</body>
+</html>
